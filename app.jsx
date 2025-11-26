@@ -47,13 +47,14 @@ import {
   CheckSquare, 
   Trello, 
   ArrowLeft,
-  Edit, // --- NUEVO ---
-  Eye // --- NUEVO ---
+  Edit,
+  Eye,
+  Pencil, // --- NUEVO: Icono para editar
+  Save    // --- NUEVO: Icono para guardar
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN FIREBASE (LEER DESDE VARIABLES DE ENTORNO VERCEL) ---
 const firebaseConfig = {
-    // Usamos import.meta.env.VITE_... para leer las variables de Vercel/Vite
     apiKey: import.meta.env.VITE_API_KEY,
     authDomain: import.meta.env.VITE_AUTH_DOMAIN,
     projectId: import.meta.env.VITE_PROJECT_ID,
@@ -65,7 +66,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-// Usamos el Project ID como App ID
 const appId = import.meta.env.VITE_PROJECT_ID || 'default-app-id';
 
 
@@ -97,9 +97,19 @@ const getInitialPenaltyShootout = () => ({
   isKicking: false
 });
 
-// --- NUEVO: Utilidad para calcular tablas de posiciones ---
+// --- NUEVO: Formateador de Fecha ---
+const formatDate = (dateString) => {
+    if (!dateString) return "Fecha TBD";
+    const date = new Date(dateString);
+    return date.toLocaleDateString('es-ES', { 
+        weekday: 'short', 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+    });
+};
+
 const calculateStandings = (groupId, teamIds, allTeams, allMatches) => {
-    // 1. Inicializar la tabla
     const standings = teamIds.map(id => {
         const teamData = allTeams.find(t => t.id === id) || { id, name: 'Equipo Desconocido' };
         return { 
@@ -108,15 +118,12 @@ const calculateStandings = (groupId, teamIds, allTeams, allMatches) => {
         };
     });
 
-    // 2. Filtrar solo partidos de este grupo que hayan terminado
     const groupMatches = allMatches.filter(m => m.groupId === groupId && m.status === 'finished');
     
-    // 3. Iterar y calcular
     for (const match of groupMatches) {
         const teamA = standings.find(t => t.id === match.teamAId);
         const teamB = standings.find(t => t.id === match.teamBId);
         
-        // Omitir si algún equipo ya no está en el grupo
         if (!teamA || !teamB) continue;
 
         teamA.P++;
@@ -142,15 +149,13 @@ const calculateStandings = (groupId, teamIds, allTeams, allMatches) => {
         }
     }
     
-    // 4. Calcular GD
     standings.forEach(t => t.GD = t.GF - t.GA);
     
-    // 5. Ordenar
     standings.sort((a, b) => {
-        if (a.Pts !== b.Pts) return b.Pts - a.Pts; // Puntos
-        if (a.GD !== b.GD) return b.GD - a.GD; // Diferencia de Gol
-        if (a.GF !== b.GF) return b.GF - a.GF; // Goles a Favor
-        return a.name.localeCompare(b.name); // Alfabético
+        if (a.Pts !== b.Pts) return b.Pts - a.Pts;
+        if (a.GD !== b.GD) return b.GD - a.GD;
+        if (a.GF !== b.GF) return b.GF - a.GF;
+        return a.name.localeCompare(b.name);
     });
     
     return standings;
@@ -183,7 +188,6 @@ const Button = ({ onClick, children, variant = "primary", className = "", disabl
   );
 };
 
-// --- NUEVO: Input más pequeño ---
 const SmallInput = ({ ...props }) => (
   <input 
     className="bg-white border border-green-200 text-green-900 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none transition-all w-full"
@@ -198,7 +202,6 @@ const SmallSelect = ({ options, ...props }) => (
       {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
   </select>
 );
-// --- FIN NUEVO ---
 
 const Input = ({ label, ...props }) => (
   <div className="flex flex-col gap-1 mb-3">
@@ -244,7 +247,6 @@ const Badge = ({ status, period }) => {
   );
 };
 
-// --- NUEVO: Componente Toggle Switch ---
 const ToggleSwitch = ({ isEnabled, onToggle, labelLeft, labelRight, IconLeft, IconRight }) => (
   <div className="flex items-center gap-2">
     <span className={`font-bold text-xs uppercase ${!isEnabled ? 'text-red-600' : 'text-gray-400'}`}>
@@ -279,7 +281,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
         <p className="text-gray-600 mb-6 text-sm">{message}</p>
         <div className="flex justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" onClick={() => { onConfirm(); onClose(); }}>Sí, Eliminar</Button>
+          <Button variant="primary" onClick={() => { onConfirm(); onClose(); }}>Sí, Continuar</Button>
         </div>
       </div>
     </div>
@@ -350,8 +352,9 @@ export default function App() {
         (err) => console.error("Error fetching teams:", err)
     );
 
+    // --- MODIFICADO: Ordenar partidos por fecha descendente (recientes arriba) ---
     const unsubMatches = onSnapshot(
-        query(userMatchesPath, orderBy('startTime')), 
+        query(userMatchesPath, orderBy('startTime', 'desc')), 
         (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
         (err) => console.error("Error fetching matches:", err)
     );
@@ -397,7 +400,7 @@ export default function App() {
     let startText = '¡RUEDA EL BALÓN! Comienza el partido.';
     if (match.matchType === 'leg1') startText = '¡Comienza el partido de IDA!';
     if (match.matchType === 'leg2') startText = '¡Comienza el partido de VUELTA!';
-    if (match.groupId) startText = `¡Comienza el partido del ${match.groupName || 'Grupo'}!`; // --- MODIFICADO ---
+    if (match.groupId) startText = `¡Comienza el partido del ${match.groupName || 'Grupo'}!`; 
 
     await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'matches', match.id), {
       status: 'live', period: '1T', currentMinute: 0, addedTime: Math.floor(Math.random()*4)+1, halftimeCounter: 0, scoreA: 0, scoreB: 0,
@@ -430,21 +433,18 @@ export default function App() {
     const regularTimeEnd = isFirstHalf ? 45 : 90;
     const maxTime = regularTimeEnd + (match.addedTime || 0);
 
-    // --- INICIO: LÓGICA DE FIN DE PARTIDO (MODIFICADA) ---
+    // --- FIN DE PARTIDO ---
     if (currentMin >= maxTime) {
       if (isFirstHalf) {
         updates = { status: 'halftime', period: 'HT', halftimeCounter: 0, events: [...newEvents, { type: 'whistle', minute: currentMin, text: `Fin del 1T (+${match.addedTime}')` }] };
       } else {
-        // Es el final del 2T
         newEvents.push({ type: 'whistle', minute: currentMin, text: `¡FINAL DEL PARTIDO! (+${match.addedTime}')` });
         updates.events = newEvents;
         
-        // --- MODIFICADO: Añadir lógica para partidos de torneo ---
-        // Los partidos de grupo (matchType 'group') NUNCA van a penales
         if (match.matchType === 'group') {
             updates.status = 'finished';
         }
-        else if (match.matchType === 'single') {
+        else if (match.matchType === 'single' || match.matchType === 'knockout') { // --- MODIFICADO: Incluye knockout
             if (match.scoreA === match.scoreB) {
               updates.status = 'penalties';
               updates.penaltyShootout = getInitialPenaltyShootout();
@@ -470,7 +470,6 @@ export default function App() {
                 }
             }
         } else {
-            // Caso por defecto (partido de liga/amistoso sin tipo)
             updates.status = 'finished';
         }
       }
@@ -478,7 +477,6 @@ export default function App() {
       await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'matches', match.id), updates);
       return;
     }
-    // --- FIN: LÓGICA DE FIN DE PARTIDO ---
 
     updates.currentMinute = nextMin;
     const teamA = teams.find(t => t.id === match.teamAId);
@@ -721,6 +719,7 @@ export default function App() {
           const added = match.currentMinute - regular;
           timeDisplay = `${String(regular).padStart(2, '0')}+${String(added).padStart(2, '0')}`;
       }
+      
       let globalScore = null;
       if (match.matchType === 'leg1' || match.matchType === 'leg2') {
           const leg1 = matches.find(m => m.seriesId === match.seriesId && m.matchType === 'leg1');
@@ -737,6 +736,7 @@ export default function App() {
               label: (match.matchType === 'leg1' && match.status === 'scheduled' && (!leg1 || leg1.status === 'scheduled')) ? '(GLOBAL 0-0)' : `(GLOBAL ${displayAggA}-${displayAggB})`
           };
       }
+      
       const isFinished = match.status === 'finished';
       let scoreOpacityA = 'opacity-100';
       let scoreOpacityB = 'opacity-100';
@@ -766,13 +766,15 @@ export default function App() {
           if (winner === 'A') scoreOpacityB = 'opacity-50';
       }
       
-      // --- NUEVO: Lógica para etiqueta de Torneo ---
+      // --- MODIFICADO: Lógica para etiqueta de Torneo ---
       let tournamentLabel = null;
       if (match.tournamentId) {
           if (match.groupName) {
-              tournamentLabel = `${match.groupName}${match.jornada ? `, J${match.jornada}` : ''}`;
+              tournamentLabel = `${match.groupName}${match.jornada ? ` - J${match.jornada}` : ' - Fase de Grupos'}`;
+          } else if (match.stageName) {
+              tournamentLabel = match.stageName; // Ej: Cuartos de Final
           } else {
-              tournamentLabel = "Fase Eliminatoria"; // O buscar el nombre de la ronda si estuviera guardado
+              tournamentLabel = "Fase Eliminatoria";
           }
       }
       
@@ -791,9 +793,11 @@ export default function App() {
                 )}
               </div>
               <div className="bg-gradient-to-r from-green-800 to-green-700 rounded-t-2xl border-b-4 border-red-600 p-6 md:p-8 text-center relative overflow-hidden shadow-xl">
+                  {/* --- NUEVO: Mostrar fecha completa --- */}
+                  <div className="absolute top-3 right-3 z-20 text-white/70 text-[10px] font-bold uppercase">{formatDate(match.startTime)}</div>
+
                   {match.matchType === 'leg1' && <div className="absolute top-3 left-3 z-20 bg-white/20 text-white text-xs font-bold uppercase px-2 py-1 rounded">Partido de Ida</div>}
                   {match.matchType === 'leg2' && <div className="absolute top-3 left-3 z-20 bg-white/20 text-white text-xs font-bold uppercase px-2 py-1 rounded">Partido de Vuelta</div>}
-                  {/* --- MODIFICADO: Mostrar etiqueta de torneo --- */}
                   {tournamentLabel && <div className="absolute top-3 left-3 z-20 bg-white/20 text-white text-xs font-bold uppercase px-2 py-1 rounded">{tournamentLabel}</div>}
                   
                   <div className="flex justify-between items-center max-w-4xl mx-auto relative z-10">
@@ -911,16 +915,18 @@ export default function App() {
                   if (aggB > aggA) winner = 'A';
               }
           }
-          else if (match.matchType === 'single' || match.matchType === 'group') { // --- MODIFICADO ---
+          else if (match.matchType === 'single' || match.matchType === 'group' || match.matchType === 'knockout') { 
               if (match.scoreA > match.scoreB) winner = 'A';
               if (match.scoreB > match.scoreA) winner = 'B';
           }
           if (winner === 'B') scoreOpacityA = 'opacity-50';
           if (winner === 'A') scoreOpacityB = 'opacity-50';
       }
+      
       let timeLabel = "";
       if (match.status === 'scheduled') {
-          timeLabel = new Date(match.startTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+          // --- NUEVO: Mostrar fecha completa si está agendado ---
+          timeLabel = formatDate(match.startTime);
       } else if (match.status === 'penalties') { timeLabel = "PEN"; }
       else if (match.status === 'finished' && match.penaltyShootout) { timeLabel = "PEN(F)"; }
       else if (match.status !== 'finished') {
@@ -930,9 +936,12 @@ export default function App() {
               const added = match.currentMinute - regular;
               timeLabel = `${String(regular).padStart(2, '0')}+${String(added).padStart(2, '0')}`;
           } else { timeLabel = `${String(match.currentMinute).padStart(2, '0')}:00`; }
+      } else {
+          // Si finalizó, mostrar fecha corta
+          timeLabel = formatDate(match.startTime);
       }
+
       let globalLabel = null;
-      // --- MODIFICADO: Lógica de Global (Visual) ---
       if (match.matchType === 'leg1' || match.matchType === 'leg2') {
           const leg1 = matches.find(m => m.seriesId === match.seriesId && m.matchType === 'leg1');
           const leg2 = matches.find(m => m.seriesId === match.seriesId && m.matchType === 'leg2');
@@ -948,13 +957,15 @@ export default function App() {
           }
       }
       
-      // --- NUEVO: Etiqueta de Torneo ---
+      // --- MODIFICADO: Etiqueta de Torneo Detallada ---
       let tournamentLabel = null;
       if (match.tournamentId) {
           if (match.groupName) {
-              tournamentLabel = `${match.groupName}${match.jornada ? `, J${match.jornada}` : ''}`;
-          } else if (match.matchType !== 'group') {
-              tournamentLabel = "Eliminatoria"; // Etiqueta genérica para KO
+              tournamentLabel = `${match.groupName}${match.jornada ? ` - J${match.jornada}` : ''}`;
+          } else if (match.stageName) {
+              tournamentLabel = match.stageName; // Ej: Cuartos de Final
+          } else {
+              tournamentLabel = "Eliminatoria";
           }
       }
 
@@ -967,14 +978,12 @@ export default function App() {
               </button>
               <div className="flex justify-between items-center mb-1 pl-2">
                   <Badge status={match.status} period={match.period} />
-                  <span className="text-xs text-gray-500 font-mono">{timeLabel}</span>
+                  <span className="text-xs text-gray-500 font-mono font-bold uppercase">{timeLabel}</span>
               </div>
-              {/* --- MODIFICADO: Color de Texto y Lógica de Torneo --- */}
               <div className="flex justify-between items-center mb-4 pl-2 text-xs text-green-800 font-bold h-4">
                  <span className="truncate">
                     {match.matchType === 'leg1' && 'IDA'}
                     {match.matchType === 'leg2' && 'VUELTA'}
-                    {/* --- NUEVO: Mostrar info de torneo --- */}
                     {tournamentLabel}
                  </span>
                  <span className="whitespace-nowrap flex-shrink-0">
@@ -1037,20 +1046,58 @@ export default function App() {
 
   const TeamsView = () => {
     const [isEditing, setIsEditing] = useState(false);
+    const [editingTeamId, setEditingTeamId] = useState(null); // --- NUEVO: ID del equipo a editar
     const [formData, setFormData] = useState({ name: '', shortName: '', logo: '', probability: 0.5, style: 'balanced' });
+
     const handleSubmit = async (e) => { 
         e.preventDefault(); 
         if (!user) return; 
-        const roster = generateRoster();
-        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'teams'), { ...formData, roster, createdAt: serverTimestamp() }); 
-        setIsEditing(false); 
-        setFormData({ name: '', shortName: '', logo: '', probability: 0.5, style: 'balanced' }); 
+        
+        if (editingTeamId) {
+            // --- NUEVO: Lógica de Actualización ---
+            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'teams', editingTeamId), formData);
+        } else {
+            // Lógica de Creación
+            const roster = generateRoster();
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'teams'), { ...formData, roster, createdAt: serverTimestamp() }); 
+        }
+        
+        resetForm();
     };
+
+    const resetForm = () => {
+        setIsEditing(false);
+        setEditingTeamId(null);
+        setFormData({ name: '', shortName: '', logo: '', probability: 0.5, style: 'balanced' });
+    };
+
+    const handleEditTeam = (team) => {
+        setFormData({
+            name: team.name,
+            shortName: team.shortName,
+            logo: team.logo,
+            probability: team.probability,
+            style: team.style
+        });
+        setEditingTeamId(team.id);
+        setIsEditing(true);
+        // Scroll to top
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     return (
       <div>
-        <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-green-900">Clubes Registrados</h2><Button onClick={() => setIsEditing(!isEditing)}>{isEditing ? 'Cancelar' : <><Plus size={16} /> Nuevo Club</>}</Button></div>
+        <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-green-900">Clubes Registrados</h2>
+            <Button onClick={() => { if(isEditing) resetForm(); else setIsEditing(true); }}>
+                {isEditing ? 'Cancelar' : <><Plus size={16} /> Nuevo Club</>}
+            </Button>
+        </div>
         {isEditing && (
           <Card className="p-6 mb-6 bg-white shadow-lg animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2 mb-4 text-green-800 font-bold border-b pb-2">
+                {editingTeamId ? <><Edit size={16}/> Editar Club</> : <><Plus size={16}/> Crear Nuevo Club</>}
+            </div>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                <Input label="Nombre Completo" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="md:col-span-2" />
                <Input label="Abreviatura (3 letras)" value={formData.shortName} onChange={e => setFormData({...formData, shortName: e.target.value.toUpperCase().substring(0, 3)})} maxLength={3} />
@@ -1060,19 +1107,23 @@ export default function App() {
                    <label className="text-[10px] uppercase tracking-widest text-green-600 font-bold mb-1 block">Fuerza: {Math.round(formData.probability*100)}%</label>
                    <input type="range" min="0.1" max="1.0" step="0.01" className="w-full h-2 bg-green-100 rounded-lg accent-green-600" value={formData.probability} onChange={e => setFormData({...formData, probability: parseFloat(e.target.value)})} />
                </div>
-               <Button type="submit" className="md:col-span-3">Guardar Equipo</Button>
+               <Button type="submit" className="md:col-span-3">{editingTeamId ? 'Guardar Cambios' : 'Crear Equipo'}</Button>
             </form>
           </Card>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{teams.map(t => (
-            <div key={t.id} className="bg-white border border-green-100 p-4 rounded-lg shadow-sm flex flex-col gap-3">
+            <div key={t.id} className="bg-white border border-green-100 p-4 rounded-lg shadow-sm flex flex-col gap-3 group">
                 <div className="flex items-center gap-4">
                     <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}`} className="w-12 h-12 rounded-full shadow-sm object-cover" />
                     <div className="flex-1">
                         <div className="font-bold text-sm text-green-900">{t.name} ({t.shortName || 'N/A'})</div>
                         <div className="text-[10px] text-gray-500 font-bold uppercase">{t.style}</div>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); setDeleteTeamId(t.id); }} className="text-gray-400 hover:text-red-500 p-2"> <Trash2 size={16}/> </button>
+                    {/* --- NUEVO: Botón de Editar --- */}
+                    <div className="flex gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); handleEditTeam(t); }} className="text-gray-400 hover:text-blue-500 p-2 bg-gray-50 hover:bg-blue-50 rounded-full transition-colors"> <Pencil size={14}/> </button>
+                        <button onClick={(e) => { e.stopPropagation(); setDeleteTeamId(t.id); }} className="text-gray-400 hover:text-red-500 p-2 bg-gray-50 hover:bg-red-50 rounded-full transition-colors"> <Trash2 size={14}/> </button>
+                    </div>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-green-500" style={{width: `${t.probability*100}%`}}></div></div>
             </div>
@@ -1082,12 +1133,8 @@ export default function App() {
   };
 
   const MatchCardWrapper = ({ match, allMatches, onClick, onDelete }) => {
-    // --- MODIFICADO: Simplificado ---
-    // Si es 'leg1', se renderizará una card doble.
-    // Si es 'leg2', se omitirá (ya se renderizó con 'leg1').
-    // Si es 'single' o 'group', se renderizará una card simple.
     if (match.matchType === 'leg2') {
-        return null; // Ya se maneja junto con leg1
+        return null; 
     }
 
     if (match.matchType === 'leg1') {
@@ -1100,7 +1147,6 @@ export default function App() {
       );
     }
     
-    // Default: 'single', 'group', o cualquier otro tipo
     return (
       <div className="bg-white border border-green-100 rounded-xl shadow-sm overflow-hidden">
         <MatchCard match={match} onClick={() => onClick(match.id)} onDelete={onDelete} />
@@ -1133,12 +1179,11 @@ export default function App() {
         setFormData({ teamAId: '', teamBId: '', startTime: '', startTimeLeg2: '', matchType: 'single', autoStart: true });
     };
     
-    // --- MODIFICADO: Mostrar partidos de torneo (filtrar solo leg2) ---
     const matchesToDisplay = matches.filter(m => m.matchType !== 'leg2');
 
     return (
       <div>
-         <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-green-900">Calendario (Series)</h2><Button onClick={() => setIsScheduling(!isScheduling)}>{isScheduling ? 'Cancelar' : <><Calendar size={16} /> Programar Serie</>}</Button></div>
+         <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-green-900">Calendario de Partidos</h2><Button onClick={() => setIsScheduling(!isScheduling)}>{isScheduling ? 'Cancelar' : <><Calendar size={16} /> Programar Partido</>}</Button></div>
          {isScheduling && <Card className="p-6 mb-6 shadow-lg animate-in slide-in-from-top-2"><form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Select label="Tipo de Partido" options={[{value:'single', label:'Partido Único'}, {value:'twoLegged', label:'Ida y Vuelta'}]} value={formData.matchType} onChange={e=>setFormData({...formData, matchType: e.target.value})} className="md:col-span-2" />
             <Select label="Equipo Local (Ida)" options={[{value:'', label:'Local...'}, ...teams.map(t => ({value:t.id, label:t.name}))]} value={formData.teamAId} onChange={e=>setFormData({...formData, teamAId: e.target.value})} />
@@ -1155,7 +1200,6 @@ export default function App() {
     );
   };
   
-  // --- NUEVO: Vista de Torneos ---
   const TournamentsView = ({ tournaments, allTeams, allMatches, user, onDeleteClick }) => {
     const [selectedTournament, setSelectedTournament] = useState(null);
     const [isCreating, setIsCreating] = useState(false);
@@ -1167,15 +1211,14 @@ export default function App() {
         await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'tournaments'), {
             name: newTournamentName,
             createdAt: serverTimestamp(),
-            groups: [], // [{ id, name, teams: [], settings: { classifiedSlots: 2 } }]
-            knockout: null // { type: 8, matches: [] }
+            groups: [], 
+            knockout: null 
         });
         
         setNewTournamentName("");
         setIsCreating(false);
     };
     
-    // Si un torneo está seleccionado, muestra el detalle
     if (selectedTournament) {
         return (
             <TournamentDetailView 
@@ -1189,7 +1232,6 @@ export default function App() {
         );
     }
 
-    // Vista de lista de torneos
     return (
         <div className="animate-in fade-in duration-300">
             <div className="flex justify-between items-center mb-6">
@@ -1241,14 +1283,12 @@ export default function App() {
     );
   };
   
-  // --- NUEVO: Vista de Detalle de Torneo (Componente interno) ---
   const TournamentDetailView = ({ tournament, onBack, user, allTeams, allMatches, onDeleteTournament }) => {
-    const [view, setView] = useState('groups'); // 'groups' or 'knockout'
-    const [isEditMode, setIsEditMode] = useState(true); // --- NUEVO: Modo Edición ---
+    const [view, setView] = useState('groups'); 
+    const [isEditMode, setIsEditMode] = useState(true); 
     
     const [groupForm, setGroupForm] = useState({ name: '', classifiedSlots: 2 });
     const [teamToAdd, setTeamToAdd] = useState({ groupId: null, teamId: '' });
-    // --- MODIFICADO: Añadir jornada al form ---
     const [matchForm, setMatchForm] = useState({ groupId: null, teamAId: '', teamBId: '', startTime: '', jornada: '' });
     const [knockoutSetup, setKnockoutSetup] = useState(tournament.knockout ? tournament.knockout.type : 8);
 
@@ -1269,10 +1309,9 @@ export default function App() {
     const handleAddTeamToGroup = async (groupId) => {
         if (!teamToAdd.teamId || !groupId) return;
         
-        // Encontrar el grupo y añadir el equipo
         const newGroups = tournament.groups.map(g => {
             if (g.id === groupId) {
-                if (g.teams.includes(teamToAdd.teamId)) return g; // Evitar duplicados
+                if (g.teams.includes(teamToAdd.teamId)) return g;
                 return { ...g, teams: [...g.teams, teamToAdd.teamId] };
             }
             return g;
@@ -1298,10 +1337,8 @@ export default function App() {
             return;
         }
         
-        // --- NUEVO: Obtener nombre del grupo ---
         const group = tournament.groups.find(g => g.id === matchForm.groupId);
 
-        // Crear el partido en la colección 'matches'
         await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'matches'), {
             teamAId: matchForm.teamAId,
             teamBId: matchForm.teamBId,
@@ -1312,16 +1349,14 @@ export default function App() {
             currentMinute: 0, events: [], period: '1T', 
             addedTime: 0, halftimeCounter: 0, 
             createdAt: serverTimestamp(),
-            // --- Datos del Torneo ---
             tournamentId: tournament.id,
             groupId: matchForm.groupId,
-            groupName: group ? group.name : null, // --- NUEVO ---
-            jornada: matchForm.jornada || null, // --- NUEVO ---
+            groupName: group ? group.name : null, 
+            jornada: matchForm.jornada || null, 
             seriesId: null,
             matchType: 'group', 
         });
         
-        // --- MODIFICADO: Resetear jornada ---
         setMatchForm({ groupId: null, teamAId: '', teamBId: '', startTime: '', jornada: '' });
     };
 
@@ -1332,22 +1367,29 @@ export default function App() {
             type: type,
             matches: Array.from({ length: matchesCount }, (_, i) => ({
                 id: `ko-match-${i+1}`,
-                name: `Partido ${i+1}`, // Ej: Cuartos 1
+                name: getKnockoutStageName(type, i), // --- NUEVO: Función auxiliar para nombres
                 teamA: null,
                 teamB: null,
-                matchId: null // ID del partido real
+                matchId: null 
             }))
         };
         await updateDoc(docRef, { knockout: newKnockout });
     };
+
+    const getKnockoutStageName = (totalTeams, index) => {
+        if (totalTeams === 16) return `Octavos ${index + 1}`;
+        if (totalTeams === 8) return `Cuartos ${index + 1}`;
+        if (totalTeams === 4) return `Semifinal ${index + 1}`;
+        if (totalTeams === 2) return `Final`;
+        return `Partido ${index + 1}`;
+    }
     
-    // --- NUEVO: Actualizar enfrentamiento de eliminatoria ---
     const handleUpdateKnockoutMatch = async (koMatchId, teamSide, teamId) => {
         if (!tournament.knockout) return;
         
         const newMatches = tournament.knockout.matches.map(m => {
             if (m.id === koMatchId) {
-                return { ...m, [teamSide]: teamId || null }; // Poner null si se selecciona 'A definir'
+                return { ...m, [teamSide]: teamId || null }; 
             }
             return m;
         });
@@ -1355,6 +1397,44 @@ export default function App() {
         const newKnockout = { ...tournament.knockout, matches: newMatches };
         
         await updateDoc(docRef, { knockout: newKnockout });
+    };
+
+    // --- NUEVO: Crear partido desde el cuadro de eliminatoria ---
+    const handleCreateKnockoutMatch = async (koMatch) => {
+        if (!koMatch.teamA || !koMatch.teamB) {
+            alert("Selecciona ambos equipos para programar el partido.");
+            return;
+        }
+
+        // Crear partido real
+        const matchRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'matches'), {
+            teamAId: koMatch.teamA,
+            teamBId: koMatch.teamB,
+            startTime: new Date().toISOString(), // Default: Hoy
+            status: 'scheduled',
+            autoStart: true,
+            scoreA: 0, scoreB: 0,
+            currentMinute: 0, events: [], period: '1T',
+            addedTime: 0, halftimeCounter: 0,
+            createdAt: serverTimestamp(),
+            tournamentId: tournament.id,
+            groupId: null,
+            groupName: null,
+            stageName: koMatch.name, // Instancia (Cuartos, Semis, etc)
+            jornada: null,
+            seriesId: null,
+            matchType: 'knockout', // Tipo especial para penales
+        });
+
+        // Vincular ID al bracket
+        const newMatches = tournament.knockout.matches.map(m => {
+            if (m.id === koMatch.id) {
+                return { ...m, matchId: matchRef.id };
+            }
+            return m;
+        });
+        
+        await updateDoc(docRef, { knockout: { ...tournament.knockout, matches: newMatches } });
     };
 
     const tournamentMatches = allMatches.filter(m => m.tournamentId === tournament.id);
@@ -1371,7 +1451,6 @@ export default function App() {
                     <ArrowLeft size={16} /> Volver a Torneos
                 </Button>
                 
-                {/* --- NUEVO: Toggle Edición/Visual --- */}
                 <ToggleSwitch 
                     isEnabled={isEditMode}
                     onToggle={() => setIsEditMode(!isEditMode)}
@@ -1403,7 +1482,7 @@ export default function App() {
             {/* --- VISTA DE GRUPOS --- */}
             {view === 'groups' && (
                 <div className="space-y-8">
-                    {/* Formulario Añadir Grupo (Solo Modo Edición) */}
+                    {/* Formulario Añadir Grupo */}
                     {isEditMode && (
                         <Card className="p-4 bg-gray-50">
                             <h3 className="font-bold text-green-800 mb-2">Añadir Nuevo Grupo</h3>
@@ -1468,7 +1547,6 @@ export default function App() {
                                                             <td className="px-2 py-2 whitespace-nowrap font-medium text-green-900 flex items-center gap-2">
                                                                 <img src={t.logo || `https://ui-avatars.com/api/?name=${t.name}`} className="w-5 h-5 rounded-full object-cover" />
                                                                 {t.name}
-                                                                {/* --- MODIFICADO: Ocultar en modo visual --- */}
                                                                 {isEditMode && (
                                                                     <Trash2 size={14} className="text-gray-400 hover:text-red-600 cursor-pointer" onClick={() => handleRemoveTeamFromGroup(group.id, t.id)} />
                                                                 )}
@@ -1485,7 +1563,6 @@ export default function App() {
                                             </table>
                                         </div>
 
-                                        {/* Añadir Equipo (Solo Modo Edición) */}
                                         {isEditMode && (
                                             <div className="flex gap-2 mt-4">
                                                 <SmallSelect
@@ -1500,7 +1577,6 @@ export default function App() {
 
                                     {/* Derecha: Partidos */}
                                     <div className={isEditMode ? "border-l border-green-100 pl-8" : ""}>
-                                        {/* Formulario Programar Partido (Solo Modo Edición) */}
                                         {isEditMode && (
                                             <>
                                                 <h4 className="font-bold text-green-800 mb-3">Programar Partido</h4>
@@ -1508,7 +1584,6 @@ export default function App() {
                                                     <SmallSelect options={[{ value: '', label: 'Local...' }, ...teamsInGroup.map(t => ({ value: t.id, label: t.name }))]} value={matchForm.groupId === group.id ? matchForm.teamAId : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, teamAId: e.target.value, teamBId: e.target.value === matchForm.teamBId ? '' : matchForm.teamBId})} />
                                                     <SmallSelect options={[{ value: '', label: 'Visitante...' }, ...teamsInGroup.filter(t => t.id !== matchForm.teamAId).map(t => ({ value: t.id, label: t.name }))]} value={matchForm.groupId === group.id ? matchForm.teamBId : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, teamBId: e.target.value})} />
                                                     <SmallInput type="datetime-local" value={matchForm.groupId === group.id ? matchForm.startTime : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, startTime: e.target.value})} />
-                                                    {/* --- NUEVO: Input Jornada --- */}
                                                     <SmallInput type="number" min="1" placeholder="Jornada #" value={matchForm.groupId === group.id ? matchForm.jornada : ''} onChange={e => setMatchForm({...matchForm, groupId: group.id, jornada: e.target.value})} />
                                                     <Button onClick={handleScheduleMatch} className="w-full" disabled={matchForm.groupId !== group.id}><Calendar size={16}/> Programar</Button>
                                                 </div>
@@ -1522,12 +1597,15 @@ export default function App() {
                                                 const tA = allTeams.find(t => t.id === m.teamAId);
                                                 const tB = allTeams.find(t => t.id === m.teamBId);
                                                 return (
-                                                    <div key={m.id} className="text-sm p-2 bg-white border border-gray-100 rounded flex justify-between items-center">
-                                                        <div className="flex items-center gap-2">
-                                                            {m.jornada && <span className="text-xs font-bold text-gray-400">J{m.jornada}</span>}
-                                                            <span className="font-bold">{tA?.shortName || '?'}</span> {m.scoreA} - {m.scoreB} <span className="font-bold">{tB?.shortName || '?'}</span>
+                                                    <div key={m.id} className="text-sm p-2 bg-white border border-gray-100 rounded flex flex-col gap-1">
+                                                        <div className="flex justify-between items-center">
+                                                            <div className="flex items-center gap-2">
+                                                                {m.jornada && <span className="text-xs font-bold text-gray-400">J{m.jornada}</span>}
+                                                                <span className="font-bold">{tA?.shortName || '?'}</span> {m.scoreA} - {m.scoreB} <span className="font-bold">{tB?.shortName || '?'}</span>
+                                                            </div>
+                                                            <Badge status={m.status} period={m.period} />
                                                         </div>
-                                                        <Badge status={m.status} period={m.period} />
+                                                        <div className="text-[10px] text-gray-400 text-right">{formatDate(m.startTime)}</div>
                                                     </div>
                                                 )
                                             })}
@@ -1543,7 +1621,7 @@ export default function App() {
             {/* --- VISTA DE ELIMINATORIA --- */}
             {view === 'knockout' && (
                 <div className="space-y-6">
-                    {/* Formulario Configurar (Solo Modo Edición) */}
+                    {/* Formulario Configurar */}
                     {isEditMode && (
                         <Card className="p-6">
                             <h3 className="font-bold text-green-800 mb-3">Configurar Eliminatoria</h3>
@@ -1569,38 +1647,68 @@ export default function App() {
                         <Card className="p-6">
                              <h3 className="text-xl font-bold text-red-700 mb-4">Cuadro de {tournament.knockout.type} Equipos</h3>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {tournament.knockout.matches.map(koMatch => (
-                                    <div key={koMatch.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                        <div className="font-bold text-sm text-green-800 mb-2">{koMatch.name}</div>
-                                        
-                                        {/* --- MODIFICADO: Renderizado Condicional Edición/Visual --- */}
-                                        {isEditMode ? (
-                                            <div className="space-y-2">
-                                                <SmallSelect 
-                                                    options={teamOptions} 
-                                                    value={koMatch.teamA || ''}
-                                                    onChange={(e) => handleUpdateKnockoutMatch(koMatch.id, 'teamA', e.target.value)}
-                                                />
-                                                <SmallSelect 
-                                                    options={teamOptions}
-                                                    value={koMatch.teamB || ''}
-                                                    onChange={(e) => handleUpdateKnockoutMatch(koMatch.id, 'teamB', e.target.value)}
-                                                />
+                                {tournament.knockout.matches.map(koMatch => {
+                                    // Buscar partido real si existe
+                                    const linkedMatch = koMatch.matchId ? allMatches.find(m => m.id === koMatch.matchId) : null;
+                                    const teamAObj = allTeams.find(t => t.id === koMatch.teamA);
+                                    const teamBObj = allTeams.find(t => t.id === koMatch.teamB);
+
+                                    return (
+                                        <div key={koMatch.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="font-bold text-sm text-green-800">{koMatch.name}</div>
+                                                {linkedMatch && <Badge status={linkedMatch.status} period={linkedMatch.period} />}
                                             </div>
-                                        ) : (
-                                            <div className="flex items-center justify-between p-2 bg-white rounded text-sm">
-                                                <span className={!koMatch.teamA ? 'text-gray-400' : 'font-medium'}>
-                                                    {koMatch.teamA ? (allTeams.find(t => t.id === koMatch.teamA)?.name || 'Equipo A') : 'A definir'}
-                                                </span>
-                                                <span className="font-bold text-gray-400 text-xs">vs</span>
-                                                <span className={!koMatch.teamB ? 'text-gray-400' : 'font-medium'}>
-                                                    {koMatch.teamB ? (allTeams.find(t => t.id === koMatch.teamB)?.name || 'Equipo B') : 'A definir'}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {/* Aquí se podría añadir lógica para vincular partidos */}
-                                    </div>
-                                ))}
+                                            
+                                            {/* --- MODO EDICIÓN: Selectores de Equipos --- */}
+                                            {isEditMode && !linkedMatch ? (
+                                                <div className="space-y-2">
+                                                    <SmallSelect 
+                                                        options={teamOptions} 
+                                                        value={koMatch.teamA || ''}
+                                                        onChange={(e) => handleUpdateKnockoutMatch(koMatch.id, 'teamA', e.target.value)}
+                                                    />
+                                                    <SmallSelect 
+                                                        options={teamOptions}
+                                                        value={koMatch.teamB || ''}
+                                                        onChange={(e) => handleUpdateKnockoutMatch(koMatch.id, 'teamB', e.target.value)}
+                                                    />
+                                                    {/* --- NUEVO: Botón Programar si ambos equipos están seleccionados --- */}
+                                                    {koMatch.teamA && koMatch.teamB && (
+                                                        <Button onClick={() => handleCreateKnockoutMatch(koMatch)} className="w-full mt-2" variant="secondary">
+                                                            <Play size={14} /> Programar Partido
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                // --- MODO VISUAL O PARTIDO YA CREADO ---
+                                                <div className="bg-white rounded border border-gray-100 p-2">
+                                                    <div className="flex justify-between items-center py-1">
+                                                        <span className={!koMatch.teamA ? 'text-gray-400' : 'font-bold text-green-900'}>
+                                                            {teamAObj?.name || 'A definir'}
+                                                        </span>
+                                                        {linkedMatch && <span className="font-bold text-lg">{linkedMatch.scoreA}</span>}
+                                                    </div>
+                                                    <div className="flex justify-between items-center py-1 border-t border-gray-50">
+                                                        <span className={!koMatch.teamB ? 'text-gray-400' : 'font-bold text-green-900'}>
+                                                            {teamBObj?.name || 'A definir'}
+                                                        </span>
+                                                        {linkedMatch && <span className="font-bold text-lg">{linkedMatch.scoreB}</span>}
+                                                    </div>
+                                                    {/* Mostrar ganador de penales si aplica */}
+                                                    {linkedMatch?.penaltyShootout?.winner && (
+                                                        <div className="text-xs text-blue-600 font-bold mt-1 text-center">
+                                                            Gana {linkedMatch.penaltyShootout.winner === 'A' ? teamAObj?.shortName : teamBObj?.shortName} en Penales
+                                                        </div>
+                                                    )}
+                                                    {!linkedMatch && isEditMode === false && (
+                                                         <div className="text-xs text-center text-gray-400 mt-2 italic">Por programar...</div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )
+                                })}
                              </div>
                         </Card>
                     )}
@@ -1619,7 +1727,6 @@ export default function App() {
     </div>
   );
   
-  // --- MODIFICADO: Menú y Renderizado Principal ---
   const navItems = [
     { id: 'dashboard', icon: Activity, label: 'Inicio' },
     { id: 'tournaments', icon: Shield, label: 'Torneos' }, 
@@ -1647,7 +1754,6 @@ export default function App() {
             if(user) await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'matches', deleteMatchId));
         }}
       />
-      {/* --- NUEVO: Modal Borrar Torneo --- */}
       <ConfirmModal 
         isOpen={!!deleteTournamentId} 
         title="¿Eliminar Torneo?" 
@@ -1674,7 +1780,7 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="text-[10px] text-center text-green-300 uppercase font-bold tracking-wider">v5.1 Edición</div>
+        <div className="text-[10px] text-center text-green-300 uppercase font-bold tracking-wider">v5.2 - Eliminatorias</div>
       </div>
       <div className="md:hidden bg-green-800 p-4 flex justify-between items-center sticky top-0 z-40 shadow-md">
          <div className="flex items-center gap-2 text-white font-black italic"><img 
